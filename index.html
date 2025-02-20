@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Display GLTF Model</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            cursor: default;
+            /* Default cursor style */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .crosshair {
+            cursor: crosshair;
+            /* Crosshair cursor style */
+        }
+
+        /* Style for material selection buttons */
+        .material-options {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1;
+        }
+
+        .material-button {
+            margin-right: 5px;
+            cursor: pointer;
+        }
+
+        .apply-button {
+            margin-left: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Material selection buttons -->
+    <div class="material-options">
+        <button class="material-button" data-material="brick">Brick</button>
+        <button class="material-button" data-material="marble">Marble</button>
+        <button class="material-button" data-material="rock">Rock</button>
+        <button class="apply-button">Apply</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(95, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(5, 5, 5).normalize();
+        scene.add(directionalLight);
+
+        const loader = new THREE.GLTFLoader();
+        let cube001 = null;
+        let fixator = null;
+        let separatedMeshes = []; // Array to track separated meshes
+        let currentSeparatedMesh = null; // Store the currently separated mesh
+        let selectedMaterial = null; // Store the selected material
+
+        // Load textures using TextureLoader
+        const textureLoader = new THREE.TextureLoader();
+        const wallMaterials = {
+            brick: new THREE.MeshStandardMaterial({ map: textureLoader.load('blocks/sandstone.jpg') }),
+            marble: new THREE.MeshStandardMaterial({ map: textureLoader.load('blocks/wall_diffuse.jpg') }),
+            rock: new THREE.MeshStandardMaterial({ map: textureLoader.load('blocks/Brick_BaseColor.jpg') })
+        };
+
+        // Event listeners for material selection buttons
+        const materialButtons = document.querySelectorAll('.material-button');
+        materialButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const materialKey = this.getAttribute('data-material'); // Get the selected material key
+                selectedMaterial = wallMaterials[materialKey].clone(); // Clone the selected material
+                console.log('Selected material:', materialKey);
+
+                // Change the material of the currently separated mesh temporarily
+                if (currentSeparatedMesh) {
+                    currentSeparatedMesh.material = selectedMaterial; // Apply the new material temporarily
+                    console.log('Temporary material applied to separated mesh:', materialKey);
+                }
+            });
+        });
+
+        // Apply button event listener
+        const applyButton = document.querySelector('.apply-button');
+        applyButton.addEventListener('click', function () {
+            if (currentSeparatedMesh && selectedMaterial) {
+                // Apply the selected material to the original model's corresponding mesh
+                const originalMesh = scene.getObjectByName(currentSeparatedMesh.name); // Get the original mesh by name
+                if (originalMesh) {
+                    originalMesh.material = selectedMaterial.clone(); // Apply the material to the original mesh
+                    console.log('Material applied to original model:', originalMesh.name);
+                }
+            }
+        });
+
+        loader.load('blocks/FULL-ROOM_23-10.gltf', function (gltf) {
+            const model = gltf.scene;
+            scene.add(model);
+            model.scale.set(0.1, 0.1, 0.1); // Scaling down the model
+
+            // Move the entire model 20% to the left
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3()).length();
+            const center = box.getCenter(new THREE.Vector3());
+
+            model.position.x = model.position.x - size * 0.9; // Shift model to the left by 20%
+
+            model.traverse(function (child) {
+                if (child.isMesh) {
+                    // Log mesh names for debugging
+                    console.log('Mesh found:', child.name);
+
+                    // If needed, adjust these conditions based on your GLTF model structure
+                    if (child.name === 'Cube001') {
+                        cube001 = child;
+                        cube001.userData = { isClickable: true };
+                    }
+
+                    if (child.name === 'Cube002') {
+                        fixator = child;
+                        fixator.userData = { isClickable: true };
+                    }
+                }
+            });
+
+            const distanceFactor = 3;
+            camera.position.set(center.x + size / (distanceFactor * 5), center.y + size / (distanceFactor * 0.3), size / distanceFactor);
+            camera.lookAt(center);
+        }, undefined, function (error) {
+            console.error("An error occurred loading the GLTF model:", error);
+        });
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.1;
+        controls.zoomSpeed = 0.5;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', function () {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            renderer.setSize(width, height);
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+        });
+
+        const mouse = new THREE.Vector2();
+        const raycaster = new THREE.Raycaster();
+
+        // Mouse click event listener
+        window.addEventListener('click', function (event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            for (let i = 0; i < intersects.length; i++) {
+                const intersectedObject = intersects[i].object;
+
+                if (intersectedObject.userData.isClickable) {
+                    const intersectionPoint = intersects[i].point; // Exact point of intersection (click)
+
+                    // Hide the first separated mesh if it exists
+                    if (separatedMeshes.length > 0) {
+                        separatedMeshes[0].visible = false; // Hide the first separated mesh
+                        separatedMeshes.shift(); // Remove it from the array
+                    }
+
+                    // Remove the clicked object from the model and clone it
+                    scene.remove(intersectedObject);
+
+                    const clonedObject = intersectedObject.clone();
+                    clonedObject.scale.set(0.5, 0.3, 0.3); // Scale down the separated object
+                    clonedObject.position.copy(intersectionPoint); // Start from exact click point
+
+                    scene.add(clonedObject);
+
+                    // Animate the cloned object to move out of the model from the clicked position
+                    gsap.to(clonedObject.position, {
+                        duration: 3, // 2-second animation
+                        x: intersectionPoint.x + 1,  // Adjust the x position for separation
+                        y: intersectionPoint.y + 0.0001,    // Adjust the y position
+                        z: intersectionPoint.z + 0.001, // Slight z-axis offset
+                        ease: "power2.out"
+                    });
+
+                    separatedMeshes.push(clonedObject); // Add the cloned object to the array
+                    currentSeparatedMesh = clonedObject; // Set the current separated mesh
+
+                    console.log(intersectedObject.name + " has been separated and animated from the exact click point.");
+                    break;
+                }
+            }
+        });
+
+        // Mouse move event listener for hover effect
+        window.addEventListener('mousemove', function (event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            let isHovering = false;
+
+            for (let i = 0; i < intersects.length; i++) {
+                const intersectedObject = intersects[i].object;
+                if (intersectedObject.userData.isClickable) {
+                    isHovering = true;
+                    break;
+                }
+            }
+
+            // Change cursor style based on hover status
+            if (isHovering) {
+                document.body.classList.add('crosshair'); // Add crosshair class
+            } else {
+                document.body.classList.remove('crosshair'); // Remove crosshair class
+            }
+        });
+    </script>
